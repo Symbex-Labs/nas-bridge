@@ -1,19 +1,19 @@
-# NAS Bridge — Local Deployment Validation Report
+# NAS Bridge — Deployment Validation Report
 
-**Date:** 2026-06-02  
-**Version:** 1.0.0  
-**Environment:** Local Docker (Replit, Docker 27.5.1)  
-**Image:** `nas-bridge:test` built from `nas-bridge/Dockerfile`  
+**Date:** 2026-06-02
+**Version:** 1.0.0
+**Environment:** Local Docker (Docker 27.5.1)
+**Image:** `nas-bridge:test` built from `Dockerfile`
 **Result:** ✅ 18/18 checks passed
 
 ---
 
 ## Test Environment
 
-### Jobs directory structure
+### File share directory structure
 
 ```
-/tmp/nas-test-jobs/          ← mounted as /volume1/Jobs:ro inside container
+<test-root>/          ← mounted as /volume1/Jobs:ro inside container
 ├── Bids/
 │   └── TestProject/
 │       ├── Plans/
@@ -42,7 +42,7 @@ docker build -t nas-bridge:test .
 docker run -d \
   --name nas-bridge-test \
   --env-file .env \
-  -v /tmp/nas-test-jobs:/volume1/Jobs:ro \
+  -v /path/to/test-share:/volume1/Jobs:ro \
   -p 8089:8089 \
   nas-bridge:test
 ```
@@ -147,14 +147,14 @@ curl -H "Authorization: Bearer $TOKEN" \
 | Root lists all top-level folders | ✅ PASS |
 | Directories sort before files | ✅ PASS |
 | Subdirectory listing works | ✅ PASS |
-| Root path returns `"/"` (not `"/."`) | ✅ PASS |
+| Root path returns `"/"` | ✅ PASS |
 
 ---
 
 ### 4. Path Traversal Protection
 
 ```bash
-# Attempt to escape the Jobs root
+# Attempt to escape the share root
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8089/api/v1/list?path=../../etc"
 # HTTP 400 — {"detail":"Path traversal rejected"}
@@ -337,15 +337,16 @@ Well within the 2 GB RAM constraint of the Synology DS423+.
 
 ---
 
-## Readiness for Jeremy
+## Deployment Readiness
 
-The deployment package is ready. The exact steps Jeremy follows on the Synology are in `docs/deployment.md`. The validation procedure above can be reproduced on the NAS before going live by running the same curl commands against `http://localhost:8089` from an SSH session on the NAS.
+The service passed all 18 validation checks. To reproduce this validation on the target NAS, run the same curl commands from an SSH session on the NAS against `http://localhost:8080` after starting the container.
 
-**Recommended handoff sequence:**
+**Pre-deployment checklist:**
 
-1. Transfer `nas-bridge/` to the NAS (`scp -r nas-bridge/ admin@<nas-ip>:/volume1/docker/nas-bridge`)
+1. Copy repository to NAS (`git clone` or `scp`)
 2. Generate token: `openssl rand -hex 32`
-3. Copy `.env.example` to `.env`, paste token as `BRIDGE_TOKEN`
-4. Start: `docker compose up -d --build`
-5. Validate: `curl http://localhost:8089/health` — confirm `"status": "healthy"` with `root_exists: true`
-6. Run interactive API explorer: browse to `http://<tailscale-ip>:8089/docs`
+3. Copy `.env.example` to `.env`, set `BRIDGE_TOKEN`
+4. Start service: `docker compose up -d --build`
+5. Validate: `curl http://localhost:8080/health` — confirm `"status": "healthy"` with `root_exists: true` and `root_readable: true`
+6. Test API: `curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/list`
+7. Browse interactive docs: `http://<tailscale-ip>:8080/docs`

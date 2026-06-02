@@ -1,12 +1,10 @@
 # NAS Bridge
 
-A lightweight read-only HTTP API that runs in Docker on your Synology DS423+ and exposes the Jobs share over Tailscale to TakeoffAssist.
+A lightweight read-only HTTP API that runs in Docker on a Synology NAS and exposes a file share over Tailscale to a client application.
 
 ## Quick start
 
 ```bash
-cd nas-bridge
-
 # 1. Create your environment file
 cp .env.example .env
 
@@ -17,7 +15,7 @@ openssl rand -hex 32
 nano .env
 
 # 4. Build and start
-docker compose up -d
+docker compose up -d --build
 
 # 5. Verify it's healthy
 curl http://localhost:8080/health
@@ -28,7 +26,7 @@ curl http://localhost:8080/health
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `BRIDGE_TOKEN` | **Yes** | — | Static Bearer token for all API requests |
-| `ROOT_PATH` | No | `/volume1/Jobs` | Absolute path to the Jobs share inside the container |
+| `ROOT_PATH` | No | `/volume1/Jobs` | Absolute path to the file share inside the container |
 | `HOST` | No | `0.0.0.0` | Interface to bind (keep `0.0.0.0` inside Docker) |
 | `PORT` | No | `8080` | TCP port the service listens on |
 | `LOG_LEVEL` | No | `info` | Uvicorn log level (`debug`/`info`/`warning`/`error`) |
@@ -41,7 +39,7 @@ All `/api/v1/*` endpoints require:
 Authorization: Bearer <BRIDGE_TOKEN>
 ```
 
-Anonymous requests receive **HTTP 401**.  Path traversal attempts (e.g. `../../etc/passwd`) receive **HTTP 400** and never leak files outside the Jobs root.
+Anonymous requests receive **HTTP 401**.  Path traversal attempts (e.g. `../../etc/passwd`) receive **HTTP 400** and never leak files outside the configured root.
 
 ### GET /health
 
@@ -68,7 +66,7 @@ curl http://<tailscale-ip>:8080/health
 
 ### GET /api/v1/list?path=
 
-List directory contents.  Leave `path` empty to list the Jobs root.
+List directory contents.  Leave `path` empty to list the root folder.
 
 ```bash
 TOKEN=your-bridge-token

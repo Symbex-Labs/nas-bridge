@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
-LABEL maintainer="TakeoffAssist" \
-      description="NAS Bridge — read-only HTTP API for the Synology Jobs share"
+LABEL maintainer="nas-bridge" \
+      description="NAS Bridge — read-only HTTP API for a Synology NAS Jobs share"
 
 WORKDIR /app
 

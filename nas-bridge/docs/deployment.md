@@ -10,7 +10,7 @@ This guide walks through deploying the NAS Bridge on a Synology DS423+ running D
 |---|---|
 | DSM 7.x | Tested on DSM 7.2 |
 | Docker (Container Manager) | Install from Package Center |
-| Tailscale | Installed on the NAS and on the machine running TakeoffAssist |
+| Tailscale | Installed on the NAS and on the client machine |
 | SSH access | Needed for the compose-based install (recommended) |
 | Jobs share | A Synology shared folder (e.g. `/volume1/Jobs`) |
 
@@ -18,10 +18,18 @@ This guide walks through deploying the NAS Bridge on a Synology DS423+ running D
 
 ## Step 1 — Copy the files to your NAS
 
-Transfer the `nas-bridge/` directory to your Synology.  The simplest way is `scp` from your development machine:
+Clone the repository directly on the NAS (recommended):
 
 ```bash
-scp -r nas-bridge/ admin@<nas-ip>:/volume1/docker/nas-bridge
+ssh admin@<nas-ip>
+git clone <repository-url> /volume1/docker/nas-bridge
+```
+
+Or transfer the files from a local copy using `scp`:
+
+```bash
+# Run this from the repository root on your local machine
+scp -r . admin@<nas-ip>:/volume1/docker/nas-bridge
 ```
 
 Or use Synology File Station to upload the directory.
@@ -143,7 +151,7 @@ To fix a permissions issue, ensure the shared folder grants read access to **Eve
 
 ## Step 6 — Tailscale network access
 
-After Tailscale is connected on both the NAS and the TakeoffAssist machine, the bridge is accessible at your NAS Tailscale IP on port 8080.
+After Tailscale is connected on both the NAS and the client machine, the bridge is accessible at your NAS Tailscale IP on port 8080.
 
 Find your NAS Tailscale IP:
 
@@ -151,7 +159,7 @@ Find your NAS Tailscale IP:
 tailscale ip -4
 ```
 
-Test from the TakeoffAssist machine (substitute your token and Tailscale IP):
+Test from the client machine (substitute your token and Tailscale IP):
 
 ```bash
 TOKEN=your-bridge-token
@@ -160,7 +168,7 @@ NAS_IP=100.x.x.x
 # Health check (no auth)
 curl http://$NAS_IP:8080/health
 
-# List Jobs root
+# List root folder
 curl -H "Authorization: Bearer $TOKEN" "http://$NAS_IP:8080/api/v1/list"
 
 # List a specific folder
