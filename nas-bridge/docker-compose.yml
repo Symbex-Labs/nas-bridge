@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  nas-bridge:
+    build: .
+    image: nas-bridge:latest
+    container_name: nas-bridge
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      # HOST_PORT:CONTAINER_PORT
+      # Change the left side if 8080 is already in use on your Synology.
+      - "8080:8080"
+
+    volumes:
+      # Mount the Jobs share read-only.
+      # Change the left side to the actual path on your Synology host.
+      # Examples:
+      #   /volume1/Jobs:/volume1/Jobs:ro     (most Synology NAS units)
+      #   /volume2/Jobs:/volume1/Jobs:ro     (if Jobs lives on a second volume)
+      - /volume1/Jobs:/volume1/Jobs:ro
+
+    # Keep memory footprint low — single worker handles all requests.
+    mem_limit: 128m
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
