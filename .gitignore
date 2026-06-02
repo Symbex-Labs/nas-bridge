@@ -1,6 +1,10 @@
 # Environment — never commit real secrets
 .env
 
+# Archives
+*.zip
+*.tar.gz
+
 # macOS metadata
 .DS_Store
 **/.DS_Store
