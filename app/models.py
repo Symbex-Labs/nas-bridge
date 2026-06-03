@@ -58,3 +58,39 @@ class WriteTestResponse(BaseModel):
     bytes_written: int
     read_back_verified: bool
     path: str = Field(..., description="Path relative to Jobs root, e.g. /TakeoffAssistFiles/smoke-test.txt")
+
+
+class MkdirRequest(BaseModel):
+    rel_path: str = Field(
+        ...,
+        description=(
+            "Path relative to TakeoffAssistFiles/ to create, e.g. 'Bids/JobName' or "
+            "'Bids/JobName/Plans'.  No leading slash.  No path traversal."
+        ),
+    )
+
+
+class MkdirResult(BaseModel):
+    path: str = Field(..., description="Absolute path relative to Jobs root, e.g. /TakeoffAssistFiles/Bids/JobName")
+    created: bool
+    already_existed: bool
+
+
+class MkdirResponse(MkdirResult):
+    pass
+
+
+class ProjectFolderRequest(BaseModel):
+    folder_name: str = Field(
+        ...,
+        description=(
+            "Raw project name to normalise and use as the top-level folder name inside "
+            "TakeoffAssistFiles/Bids/.  Spaces are replaced with underscores; invalid "
+            "SMB/macOS/Windows characters are stripped."
+        ),
+    )
+
+
+class ProjectFolderResponse(BaseModel):
+    normalized_name: str = Field(..., description="Normalised folder name actually used on disk")
+    dirs: list[MkdirResult] = Field(..., description="One entry per directory created or verified")

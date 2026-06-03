@@ -1,11 +1,12 @@
 """NAS Bridge — HTTP API for the Synology Jobs share.
 
-Exposes six endpoints:
+Exposes seven endpoints:
   GET  /health                 — no auth; liveness + root-mount validation
   GET  /api/v1/list            — directory listing (Bearer auth required)
   GET  /api/v1/metadata        — file or directory metadata (Bearer auth required)
   GET  /api/v1/file            — raw file bytes, streamed (Bearer auth required)
-  POST /api/v1/write-test      — controlled write to /Jobs/TakeoffAssistFiles only
+  POST /api/v1/write-test      — controlled file write to /Jobs/TakeoffAssistFiles only
+  POST /api/v1/mkdir           — controlled directory creation in /Jobs/TakeoffAssistFiles only
   GET  /docs | /redoc | /openapi.json — OpenAPI documentation
 
 Write zone:
@@ -35,8 +36,13 @@ from .models import (
     ErrorResponse,
     WriteTestRequest,
     WriteTestResponse,
+    MkdirRequest,
+    MkdirResponse,
+    ProjectFolderRequest,
+    ProjectFolderResponse,
 )
 from .write_test import write_and_verify
+from .mkdir import make_dir, create_project_skeleton
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +60,7 @@ app = FastAPI(
     openapi_tags=[
         {"name": "health", "description": "Liveness and volume-mount check."},
         {"name": "files", "description": "Browse and retrieve files from the Jobs share."},
-        {"name": "write", "description": "Controlled write operations (TakeoffAssistFiles zone only)."},
+        {"name": "write", "description": "Controlled write operations (TakeoffAssistFiles zone only). Includes file writes and directory creation."},
     ],
 )
 
@@ -279,3 +285,41 @@ def stream_file(
 def write_test(body: WriteTestRequest) -> WriteTestResponse:
     result = write_and_verify(body.filename, body.contents)
     return WriteTestResponse(**result)
+
+
+@app.post(
+    "/api/v1/mkdir",
+    response_model=ProjectFolderResponse,
+    tags=["write"],
+    summary="Create a project folder skeleton in TakeoffAssistFiles/Bids/",
+    description=(
+        "Creates three directories for a new project inside the TakeoffAssistFiles write zone:\n\n"
+        "```\n"
+        "TakeoffAssistFiles/Bids/<normalised_name>/\n"
+        "TakeoffAssistFiles/Bids/<normalised_name>/Plans/\n"
+        "TakeoffAssistFiles/Bids/<normalised_name>/Bids/\n"
+        "```\n\n"
+        "The call is **idempotent** — if any directory already exists, it is reported as "
+        "`already_existed: true` and no error is raised.  "
+        "\n\n"
+        "Hard constraints (code-level, independent of filesystem permissions):\n"
+        "- Target must be within `TakeoffAssistFiles/`\n"
+        "- Creating under `Bids/`, `Invoices/`, or `WorkLoad/` **at the top level** is rejected with HTTP 403 "
+        "(the `TakeoffAssistFiles/Bids/` sub-path is the only approved location)\n"
+        "- Path traversal (`../`) is rejected with HTTP 400\n"
+        "- Absolute paths are rejected with HTTP 400\n"
+        "- Empty names are rejected with HTTP 400\n"
+    ),
+    responses={
+        200: {"description": "Folder skeleton created or verified", "model": ProjectFolderResponse},
+        400: {"description": "Invalid name, empty name, or path traversal attempt", "model": ErrorResponse},
+        401: {"description": "Missing or invalid Bearer token", "model": ErrorResponse},
+        403: {"description": "Targets a protected production zone or path escapes write zone", "model": ErrorResponse},
+        503: {"description": "Write zone not writable — check Docker mount", "model": ErrorResponse},
+    },
+    openapi_extra=_BEARER_SECURITY,
+    dependencies=[_AUTH],
+)
+def mkdir_project(body: ProjectFolderRequest) -> ProjectFolderResponse:
+    result = create_project_skeleton(body.folder_name)
+    return ProjectFolderResponse(**result)
