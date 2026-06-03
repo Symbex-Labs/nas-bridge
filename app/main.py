@@ -1,11 +1,17 @@
-"""NAS Bridge — read-only HTTP API for the Synology Jobs share.
+"""NAS Bridge — HTTP API for the Synology Jobs share.
 
-Exposes five endpoints:
-  GET /health              — no auth; liveness + root-mount validation
-  GET /api/v1/list         — directory listing (Bearer auth required)
-  GET /api/v1/metadata     — file or directory metadata (Bearer auth required)
-  GET /api/v1/file         — raw file bytes, streamed (Bearer auth required)
-  GET /docs | /redoc | /openapi.json — OpenAPI documentation
+Exposes six endpoints:
+  GET  /health                 — no auth; liveness + root-mount validation
+  GET  /api/v1/list            — directory listing (Bearer auth required)
+  GET  /api/v1/metadata        — file or directory metadata (Bearer auth required)
+  GET  /api/v1/file            — raw file bytes, streamed (Bearer auth required)
+  POST /api/v1/write-test      — controlled write to /Jobs/TakeoffAssistFiles only
+  GET  /docs | /redoc | /openapi.json — OpenAPI documentation
+
+Write zone:
+  Writes are only permitted within /Jobs/TakeoffAssistFiles/.
+  All other paths (Bids, Invoices, WorkLoad, ...) are rejected at the code
+  level regardless of filesystem permissions.
 """
 from __future__ import annotations
 
@@ -27,23 +33,28 @@ from .models import (
     FileMetadata,
     DirectoryMetadata,
     ErrorResponse,
+    WriteTestRequest,
+    WriteTestResponse,
 )
+from .write_test import write_and_verify
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="NAS Bridge",
     version=settings.version,
-    summary="Read-only HTTP API for the Synology DS423+ Jobs share over Tailscale.",
+    summary="HTTP API for the Synology DS423+ Jobs share over Tailscale.",
     description=(
         "Exposes the NAS Jobs folder as a lightweight HTTP API.  "
         "All `/api/v1/*` endpoints require `Authorization: Bearer <BRIDGE_TOKEN>`.  "
-        "The `/health` endpoint is unauthenticated and reports whether the root "
-        "volume is mounted and readable."
+        "The `/health` endpoint is unauthenticated.  "
+        "Writes are permitted **only** within `/Jobs/TakeoffAssistFiles/`; "
+        "all other subtrees remain read-only."
     ),
     openapi_tags=[
         {"name": "health", "description": "Liveness and volume-mount check."},
         {"name": "files", "description": "Browse and retrieve files from the Jobs share."},
+        {"name": "write", "description": "Controlled write operations (TakeoffAssistFiles zone only)."},
     ],
 )
 
@@ -235,3 +246,36 @@ def stream_file(
         media_type=content_type,
         headers={"Content-Disposition": f'attachment; filename="{resolved.name}"'},
     )
+
+
+# ── Write zone ────────────────────────────────────────────────────────────────
+
+@app.post(
+    "/api/v1/write-test",
+    response_model=WriteTestResponse,
+    tags=["write"],
+    summary="Write a file to TakeoffAssistFiles/ and verify read-back",
+    description=(
+        "Writes *contents* to `/Jobs/TakeoffAssistFiles/<filename>`, reads the "
+        "file back immediately, and verifies the content matches.  "
+        "**This is the only write-capable endpoint in the bridge.**  "
+        "\n\n"
+        "Hard constraints enforced in code (independent of filesystem permissions):\n"
+        "- Target must be within `/Jobs/TakeoffAssistFiles/`\n"
+        "- Writes to `Bids/`, `Invoices/`, `WorkLoad/` are rejected with HTTP 403\n"
+        "- Path traversal (`../`) is rejected with HTTP 400\n"
+        "- Absolute paths outside the write zone are rejected with HTTP 403\n"
+    ),
+    responses={
+        200: {"description": "File written and verified", "model": WriteTestResponse},
+        400: {"description": "Invalid filename or path traversal attempt", "model": ErrorResponse},
+        401: {"description": "Missing or invalid Bearer token", "model": ErrorResponse},
+        403: {"description": "Write to protected zone or path outside write zone", "model": ErrorResponse},
+        503: {"description": "Write zone not writable — check Docker mount", "model": ErrorResponse},
+    },
+    openapi_extra=_BEARER_SECURITY,
+    dependencies=[_AUTH],
+)
+def write_test(body: WriteTestRequest) -> WriteTestResponse:
+    result = write_and_verify(body.filename, body.contents)
+    return WriteTestResponse(**result)

@@ -16,12 +16,17 @@ services:
       - "8080:8080"
 
     volumes:
-      # Mount the Jobs share read-only.
+      # Mount the full Jobs share read-only (production data — never writable).
       # Change the left side to the actual path on your Synology host.
       # Examples:
       #   /volume1/Jobs:/volume1/Jobs:ro     (most Synology NAS units)
       #   /volume2/Jobs:/volume1/Jobs:ro     (if Jobs lives on a second volume)
       - /volume1/Jobs:/volume1/Jobs:ro
+
+      # TakeoffAssistFiles is the sole approved write zone.
+      # The more-specific mount overrides the :ro parent for this subdirectory only.
+      # and ensure the Docker user has write permission to it.
+      - /volume1/Jobs/TakeoffAssistFiles:/volume1/Jobs/TakeoffAssistFiles:rw
 
     # Keep memory footprint low — single worker handles all requests.
     mem_limit: 128m

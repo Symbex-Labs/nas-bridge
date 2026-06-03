@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -46,3 +46,15 @@ class DirectoryMetadata(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class WriteTestRequest(BaseModel):
+    filename: str = Field(..., description="Filename to create under TakeoffAssistFiles/ (no path separators)")
+    contents: str = Field(..., description="UTF-8 text content to write")
+
+
+class WriteTestResponse(BaseModel):
+    success: bool
+    bytes_written: int
+    read_back_verified: bool
+    path: str = Field(..., description="Path relative to Jobs root, e.g. /TakeoffAssistFiles/smoke-test.txt")
