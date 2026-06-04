@@ -322,5 +322,10 @@ def write_test(body: WriteTestRequest) -> WriteTestResponse:
     dependencies=[_AUTH],
 )
 def mkdir_project(body: ProjectFolderRequest) -> ProjectFolderResponse:
-    result = create_project_skeleton(body.folder_name, zone=body.zone)
+    result = create_project_skeleton(
+        body.folder_name,
+        zone=body.zone,
+        bid_id=body.bid_id,
+        project_name=body.project_name,
+    )
     return ProjectFolderResponse(**result)

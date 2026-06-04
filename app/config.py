@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     host: str = Field("0.0.0.0", description="Interface to bind to")
     port: int = Field(8080, description="TCP port to listen on")
     log_level: str = Field("info", description="Uvicorn log level (debug/info/warning/error)")
-    version: str = Field("1.2.0", description="Service version string returned by /health")
+    version: str = Field("1.3.0", description="Service version string returned by /health")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

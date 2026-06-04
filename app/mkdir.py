@@ -20,12 +20,18 @@ Normalization rules (must match API server normalize_folder_name()):
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from fastapi import HTTPException, status
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(settings.root_path).resolve()
 
@@ -34,6 +40,9 @@ WRITE_ZONE = ROOT / WRITE_ZONE_NAME
 
 _PROTECTED_TOP = frozenset({"Bids", "Invoices", "WorkLoad"})
 _ALLOWED_ZONES = frozenset({"dev", "prod"})
+
+_MANIFEST_FILENAME = "takeoffassist_manifest.json"
+_MANIFEST_SCHEMA_VERSION = "1.0"
 
 _INVALID_CHARS = re.compile(r'[\x00\\/:"*?<>|]')
 _COLLAPSE_UNDERSCORES = re.compile(r"_+")
@@ -171,7 +180,75 @@ def make_dir(rel_path: str) -> dict:
     }
 
 
-def create_project_skeleton(folder_name: str, zone: str = "dev") -> dict:
+def create_manifest(
+    project_root: Path,
+    *,
+    zone: str,
+    normalized_name: str,
+    project_name: Optional[str],
+    bid_id: Optional[int],
+) -> dict:
+    """Write takeoffassist_manifest.json into *project_root* if it does not already exist.
+
+    Idempotent — if the manifest file already exists, it is not overwritten and
+    this function returns manifest_written=False, manifest_path=<existing path>.
+
+    Failure-safe — any OS or serialisation error is caught, logged, and returned
+    as manifest_written=False without propagating an exception.  Folder creation
+    must never be blocked by a manifest write failure.
+
+    Args:
+        project_root: Absolute Path to the project root directory.
+        zone:            Zone the workspace was created in ('dev' or 'prod').
+        normalized_name: Normalised folder name used on disk.
+        project_name:    Human-readable project name before normalisation, or None.
+        bid_id:          InboundBid database ID, or None.
+
+    Returns:
+        {
+            "manifest_written": bool,
+            "manifest_path": str | None,  # relative to Jobs root, e.g. /TakeoffAssistFiles/dev/Bids/…/takeoffassist_manifest.json
+        }
+    """
+    manifest_file = project_root / _MANIFEST_FILENAME
+
+    try:
+        rel = "/" + str(manifest_file.relative_to(ROOT))
+    except ValueError:
+        rel = str(manifest_file)
+
+    if manifest_file.exists():
+        logger.info("Manifest already exists — skipping write: %s", rel)
+        return {"manifest_written": False, "manifest_path": rel}
+
+    manifest = {
+        "schema_version": _MANIFEST_SCHEMA_VERSION,
+        "workspace_type": "bid",
+        "environment": zone,
+        "project_name": project_name,
+        "normalized_folder": normalized_name,
+        "bid_id": bid_id,
+        "created_by": "TakeoffAssist",
+        "created_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "workspace_created",
+    }
+
+    try:
+        manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        logger.info("Manifest written: %s", rel)
+        return {"manifest_written": True, "manifest_path": rel}
+    except Exception as exc:
+        logger.error("Manifest write failed (folder creation unaffected): %s — %s", rel, exc)
+        return {"manifest_written": False, "manifest_path": None}
+
+
+def create_project_skeleton(
+    folder_name: str,
+    zone: str = "dev",
+    *,
+    bid_id: Optional[int] = None,
+    project_name: Optional[str] = None,
+) -> dict:
     """Create the standard three-directory skeleton for a new project.
 
     Directories created (idempotent):
@@ -179,11 +256,16 @@ def create_project_skeleton(folder_name: str, zone: str = "dev") -> dict:
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/Plans/
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/Bids/
 
+    Also creates (idempotent, failure-safe):
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/takeoffassist_manifest.json
+
     Args:
-        folder_name: Already-normalised folder name (no path separators).
-        zone: Target zone subfolder — must be 'dev' or 'prod'.
-              Defaults to 'dev' so that callers that omit the field
-              (e.g. older API server versions) write to the safe dev zone.
+        folder_name:  Already-normalised folder name (no path separators).
+        zone:         Target zone subfolder — must be 'dev' or 'prod'.
+                      Defaults to 'dev' so that callers that omit the field
+                      (e.g. older API server versions) write to the safe dev zone.
+        bid_id:       InboundBid database ID written into the manifest (optional).
+        project_name: Human-readable project name written into the manifest (optional).
 
     Returns:
         {
@@ -193,6 +275,8 @@ def create_project_skeleton(folder_name: str, zone: str = "dev") -> dict:
                 {"path": ..., "created": bool, "already_existed": bool},
                 ...
             ],
+            "manifest_written": bool,
+            "manifest_path": str | None,
         }
     """
     if zone not in _ALLOWED_ZONES:
@@ -207,8 +291,23 @@ def create_project_skeleton(folder_name: str, zone: str = "dev") -> dict:
     plans_dir = make_dir(f"{zone}/Bids/{normalized}/Plans")
     bids_dir  = make_dir(f"{zone}/Bids/{normalized}/Bids")
 
+    project_root = (WRITE_ZONE / zone / "Bids" / normalized).resolve()
+    try:
+        manifest_result = create_manifest(
+            project_root,
+            zone=zone,
+            normalized_name=normalized,
+            project_name=project_name,
+            bid_id=bid_id,
+        )
+    except Exception as exc:
+        logger.error("create_manifest raised unexpectedly (folder creation unaffected): %s", exc)
+        manifest_result = {"manifest_written": False, "manifest_path": None}
+
     return {
         "normalized_name": normalized,
         "zone": zone,
         "dirs": [root_dir, plans_dir, bids_dir],
+        "manifest_written": manifest_result["manifest_written"],
+        "manifest_path": manifest_result["manifest_path"],
     }

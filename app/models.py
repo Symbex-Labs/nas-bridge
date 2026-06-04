@@ -98,9 +98,19 @@ class ProjectFolderRequest(BaseModel):
             "Determined by the API server's NAS_ZONE env var — never client-controlled."
         ),
     )
+    bid_id: Optional[int] = Field(
+        None,
+        description="InboundBid database ID — written into the workspace manifest.",
+    )
+    project_name: Optional[str] = Field(
+        None,
+        description="Human-readable project name (pre-normalisation) — written into the workspace manifest.",
+    )
 
 
 class ProjectFolderResponse(BaseModel):
     normalized_name: str = Field(..., description="Normalised folder name actually used on disk")
     zone: str = Field(..., description="Zone that was written to ('dev' or 'prod')")
     dirs: list[MkdirResult] = Field(..., description="One entry per directory created or verified")
+    manifest_written: bool = Field(..., description="True if manifest was newly created; False if it already existed or write failed")
+    manifest_path: Optional[str] = Field(None, description="Path to the manifest file relative to Jobs root, or null if not written")
