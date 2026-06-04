@@ -25,6 +25,7 @@ services:
 
       # TakeoffAssistFiles is the sole approved write zone.
       # The more-specific mount overrides the :ro parent for this subdirectory only.
+      # Create /volume1/Jobs/TakeoffAssistFiles on the NAS before deploying
       # and ensure the Docker user has write permission to it.
       - /volume1/Jobs/TakeoffAssistFiles:/volume1/Jobs/TakeoffAssistFiles:rw
 
