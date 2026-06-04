@@ -85,12 +85,22 @@ class ProjectFolderRequest(BaseModel):
         ...,
         description=(
             "Raw project name to normalise and use as the top-level folder name inside "
-            "TakeoffAssistFiles/Bids/.  Spaces are replaced with underscores; invalid "
+            "TakeoffAssistFiles/<zone>/Bids/.  Spaces are replaced with underscores; invalid "
             "SMB/macOS/Windows characters are stripped."
+        ),
+    )
+    zone: Literal["dev", "prod"] = Field(
+        "dev",
+        description=(
+            "Target zone subfolder within TakeoffAssistFiles/. "
+            "'dev' for the Replit development environment; "
+            "'prod' for the production pilot deployment. "
+            "Determined by the API server's NAS_ZONE env var — never client-controlled."
         ),
     )
 
 
 class ProjectFolderResponse(BaseModel):
     normalized_name: str = Field(..., description="Normalised folder name actually used on disk")
+    zone: str = Field(..., description="Zone that was written to ('dev' or 'prod')")
     dirs: list[MkdirResult] = Field(..., description="One entry per directory created or verified")

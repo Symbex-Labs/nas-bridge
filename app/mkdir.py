@@ -33,6 +33,7 @@ WRITE_ZONE_NAME = "TakeoffAssistFiles"
 WRITE_ZONE = ROOT / WRITE_ZONE_NAME
 
 _PROTECTED_TOP = frozenset({"Bids", "Invoices", "WorkLoad"})
+_ALLOWED_ZONES = frozenset({"dev", "prod"})
 
 _INVALID_CHARS = re.compile(r'[\x00\\/:"*?<>|]')
 _COLLAPSE_UNDERSCORES = re.compile(r"_+")
@@ -170,33 +171,44 @@ def make_dir(rel_path: str) -> dict:
     }
 
 
-def create_project_skeleton(folder_name: str) -> dict:
+def create_project_skeleton(folder_name: str, zone: str = "dev") -> dict:
     """Create the standard three-directory skeleton for a new project.
 
     Directories created (idempotent):
-        TakeoffAssistFiles/Bids/<folder_name>/
-        TakeoffAssistFiles/Bids/<folder_name>/Plans/
-        TakeoffAssistFiles/Bids/<folder_name>/Bids/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/Plans/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/Bids/
 
     Args:
         folder_name: Already-normalised folder name (no path separators).
+        zone: Target zone subfolder — must be 'dev' or 'prod'.
+              Defaults to 'dev' so that callers that omit the field
+              (e.g. older API server versions) write to the safe dev zone.
 
     Returns:
         {
             "normalized_name": str,
+            "zone": str,
             "dirs": [
                 {"path": ..., "created": bool, "already_existed": bool},
                 ...
             ],
         }
     """
+    if zone not in _ALLOWED_ZONES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid zone '{zone}' — must be one of: {sorted(_ALLOWED_ZONES)}",
+        )
+
     normalized = normalize_folder_name(folder_name)
 
-    root_dir = make_dir(f"Bids/{normalized}")
-    plans_dir = make_dir(f"Bids/{normalized}/Plans")
-    bids_dir = make_dir(f"Bids/{normalized}/Bids")
+    root_dir  = make_dir(f"{zone}/Bids/{normalized}")
+    plans_dir = make_dir(f"{zone}/Bids/{normalized}/Plans")
+    bids_dir  = make_dir(f"{zone}/Bids/{normalized}/Bids")
 
     return {
         "normalized_name": normalized,
+        "zone": zone,
         "dirs": [root_dir, plans_dir, bids_dir],
     }

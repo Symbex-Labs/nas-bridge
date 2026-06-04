@@ -291,21 +291,22 @@ def write_test(body: WriteTestRequest) -> WriteTestResponse:
     "/api/v1/mkdir",
     response_model=ProjectFolderResponse,
     tags=["write"],
-    summary="Create a project folder skeleton in TakeoffAssistFiles/Bids/",
+    summary="Create a project folder skeleton in TakeoffAssistFiles/<zone>/Bids/",
     description=(
         "Creates three directories for a new project inside the TakeoffAssistFiles write zone:\n\n"
         "```\n"
-        "TakeoffAssistFiles/Bids/<normalised_name>/\n"
-        "TakeoffAssistFiles/Bids/<normalised_name>/Plans/\n"
-        "TakeoffAssistFiles/Bids/<normalised_name>/Bids/\n"
+        "TakeoffAssistFiles/<zone>/Bids/<normalised_name>/\n"
+        "TakeoffAssistFiles/<zone>/Bids/<normalised_name>/Plans/\n"
+        "TakeoffAssistFiles/<zone>/Bids/<normalised_name>/Bids/\n"
         "```\n\n"
+        "The `zone` field must be `'dev'` (Replit development) or `'prod'` (production pilot).  "
+        "It is set by the API server's `NAS_ZONE` environment variable — never by the client.  "
         "The call is **idempotent** — if any directory already exists, it is reported as "
         "`already_existed: true` and no error is raised.  "
         "\n\n"
         "Hard constraints (code-level, independent of filesystem permissions):\n"
         "- Target must be within `TakeoffAssistFiles/`\n"
-        "- Creating under `Bids/`, `Invoices/`, or `WorkLoad/` **at the top level** is rejected with HTTP 403 "
-        "(the `TakeoffAssistFiles/Bids/` sub-path is the only approved location)\n"
+        "- `zone` must be `dev` or `prod` — any other value is rejected with HTTP 400\n"
         "- Path traversal (`../`) is rejected with HTTP 400\n"
         "- Absolute paths are rejected with HTTP 400\n"
         "- Empty names are rejected with HTTP 400\n"
@@ -321,5 +322,5 @@ def write_test(body: WriteTestRequest) -> WriteTestResponse:
     dependencies=[_AUTH],
 )
 def mkdir_project(body: ProjectFolderRequest) -> ProjectFolderResponse:
-    result = create_project_skeleton(body.folder_name)
+    result = create_project_skeleton(body.folder_name, zone=body.zone)
     return ProjectFolderResponse(**result)
