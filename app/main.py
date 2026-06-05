@@ -335,6 +335,8 @@ async def write_file(
     return WriteFileResponse(**result)
 
 
+@app.post(
+    "/api/v1/mkdir",
     response_model=ProjectFolderResponse,
     tags=["write"],
     summary="Create a project folder skeleton in TakeoffAssistFiles/<zone>/Bids/",
