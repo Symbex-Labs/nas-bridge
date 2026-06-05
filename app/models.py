@@ -114,3 +114,11 @@ class ProjectFolderResponse(BaseModel):
     dirs: list[MkdirResult] = Field(..., description="One entry per directory created or verified")
     manifest_written: bool = Field(..., description="True if manifest was newly created; False if it already existed or write failed")
     manifest_path: Optional[str] = Field(None, description="Path to the manifest file relative to Jobs root, or null if not written")
+
+
+class WriteFileResponse(BaseModel):
+    success: bool = Field(..., description="True if the file was written (or already existed identically)")
+    path: str = Field(..., description="Path relative to Jobs root, e.g. /TakeoffAssistFiles/dev/Bids/Project/Plans/plan.pdf")
+    size_bytes: int = Field(..., description="Size of the content in bytes")
+    sha256: str = Field(..., description="Hex SHA-256 digest of the content written")
+    already_existed: bool = Field(..., description="True when an identical file was already present — write was skipped")

@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     host: str = Field("0.0.0.0", description="Interface to bind to")
     port: int = Field(8080, description="TCP port to listen on")
     log_level: str = Field("info", description="Uvicorn log level (debug/info/warning/error)")
-    version: str = Field("1.3.0", description="Service version string returned by /health")
+    version: str = Field("1.4.0", description="Service version string returned by /health")
+    max_file_size_bytes: int = Field(
+        200 * 1024 * 1024,
+        description="Maximum file size in bytes accepted by POST /api/v1/write (default 200 MB)",
+    )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

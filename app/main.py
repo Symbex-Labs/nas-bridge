@@ -1,12 +1,13 @@
 """NAS Bridge — HTTP API for the Synology Jobs share.
 
-Exposes seven endpoints:
+Exposes eight endpoints:
   GET  /health                 — no auth; liveness + root-mount validation
   GET  /api/v1/list            — directory listing (Bearer auth required)
   GET  /api/v1/metadata        — file or directory metadata (Bearer auth required)
   GET  /api/v1/file            — raw file bytes, streamed (Bearer auth required)
-  POST /api/v1/write-test      — controlled file write to /Jobs/TakeoffAssistFiles only
+  POST /api/v1/write-test      — smoke-test write to /Jobs/TakeoffAssistFiles only
   POST /api/v1/mkdir           — controlled directory creation in /Jobs/TakeoffAssistFiles only
+  POST /api/v1/write           — controlled file write into a workspace (NAS-W004 Phase 1)
   GET  /docs | /redoc | /openapi.json — OpenAPI documentation
 
 Write zone:
@@ -21,7 +22,7 @@ import os
 from datetime import datetime, timezone
 from typing import Annotated, Union
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
 
@@ -40,6 +41,7 @@ from .models import (
     MkdirResponse,
     ProjectFolderRequest,
     ProjectFolderResponse,
+    WriteFileResponse,
 )
 from .write_test import write_and_verify
 from .mkdir import make_dir, create_project_skeleton
@@ -288,7 +290,51 @@ def write_test(body: WriteTestRequest) -> WriteTestResponse:
 
 
 @app.post(
-    "/api/v1/mkdir",
+    "/api/v1/write",
+    response_model=WriteFileResponse,
+    tags=["write"],
+    summary="Write a file into an existing workspace directory",
+    description=(
+        "Writes a file into `TakeoffAssistFiles/<zone>/Bids/<workspace_path>/<filename>`.  "
+        "The target workspace directory **must already exist** — create it first with "
+        "`POST /api/v1/mkdir`.  "
+        "\n\n"
+        "**Security controls (code-level, independent of filesystem permissions):**\n"
+        "- `zone` must be `dev` or `prod`\n"
+        "- `workspace_path` must be relative — no `../`, no leading `/`\n"
+        "- `filename` must be a simple name with no path separators\n"
+        "- File extension must be on the allowlist "
+        "(`.pdf .docx .doc .xlsx .xls .csv .png .jpg .jpeg .tiff .tif .txt .rtf .zip`)\n"
+        "- File must not exceed `MAX_FILE_SIZE_BYTES` (default 200 MB)\n"
+        "- Resolved path must remain inside `TakeoffAssistFiles/`\n"
+        "\n\n"
+        "**Duplicate detection:** If an identical file (same SHA-256) already exists, "
+        "the write is skipped and `already_existed: true` is returned — no error.  "
+        "If the same filename exists with different content, the new file is written "
+        "with a UTC timestamp suffix — the original is never silently overwritten."
+    ),
+    responses={
+        200: {"description": "File written (or identical file already existed)", "model": WriteFileResponse},
+        400: {"description": "Invalid zone, path traversal, bad filename, disallowed extension, or workspace not found", "model": ErrorResponse},
+        401: {"description": "Missing or invalid Bearer token", "model": ErrorResponse},
+        403: {"description": "Resolved path escapes TakeoffAssistFiles write zone", "model": ErrorResponse},
+        413: {"description": "File exceeds maximum size limit", "model": ErrorResponse},
+        503: {"description": "Write zone not writable — check Docker mount", "model": ErrorResponse},
+    },
+    openapi_extra=_BEARER_SECURITY,
+    dependencies=[_AUTH],
+)
+async def write_file(
+    zone: Annotated[str, Form(description="Target zone — 'dev' or 'prod'")],
+    workspace_path: Annotated[str, Form(description="Relative path within zone/Bids/, e.g. 'Project_Name/Plans'")],
+    filename: Annotated[str, Form(description="Simple filename with allowed extension, e.g. 'plans.pdf'")],
+    file: Annotated[UploadFile, File(description="Binary file content")],
+) -> WriteFileResponse:
+    content = await file.read()
+    result = _write_file(zone, workspace_path, filename, content)
+    return WriteFileResponse(**result)
+
+
     response_model=ProjectFolderResponse,
     tags=["write"],
     summary="Create a project folder skeleton in TakeoffAssistFiles/<zone>/Bids/",
