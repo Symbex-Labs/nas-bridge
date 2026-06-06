@@ -41,9 +41,6 @@ WRITE_ZONE = ROOT / WRITE_ZONE_NAME
 _PROTECTED_TOP = frozenset({"Bids", "Invoices", "WorkLoad"})
 _ALLOWED_ZONES = frozenset({"dev", "prod"})
 
-_MANIFEST_FILENAME = "takeoffassist_manifest.json"
-_MANIFEST_SCHEMA_VERSION = "1.0"
-
 _INVALID_CHARS = re.compile(r'[\x00\\/:"*?<>|]')
 _COLLAPSE_UNDERSCORES = re.compile(r"_+")
 _STRIP_EDGES = re.compile(r"^[._]+|[._]+$")
@@ -180,6 +177,14 @@ def make_dir(rel_path: str) -> dict:
     }
 
 
+_MANIFEST_FILENAME = "takeoffassist_manifest.json"
+_MANIFEST_SCHEMA_VERSION = "2.0"
+
+_ALL_SUBDIRS: tuple[str, ...] = (
+    "Plans", "Specifications", "Bids", "Attachments", "Generated",
+)
+
+
 def create_manifest(
     project_root: Path,
     *,
@@ -188,7 +193,7 @@ def create_manifest(
     project_name: Optional[str],
     bid_id: Optional[int],
 ) -> dict:
-    """Write takeoffassist_manifest.json into *project_root* if it does not already exist.
+    """Write takeoffassist_manifest.json (schema v2.0) into *project_root*.
 
     Idempotent — if the manifest file already exists, it is not overwritten and
     this function returns manifest_written=False, manifest_path=<existing path>.
@@ -197,8 +202,13 @@ def create_manifest(
     as manifest_written=False without propagating an exception.  Folder creation
     must never be blocked by a manifest write failure.
 
+    Schema v2.0 adds over v1.0:
+        files        — empty list; populated by write.write_file() via manifest.register_file()
+        file_counts  — per-subdir integer counters initialised to 0
+        last_updated — ISO-8601 UTC timestamp refreshed on every manifest write
+
     Args:
-        project_root: Absolute Path to the project root directory.
+        project_root:    Absolute Path to the project root directory.
         zone:            Zone the workspace was created in ('dev' or 'prod').
         normalized_name: Normalised folder name used on disk.
         project_name:    Human-readable project name before normalisation, or None.
@@ -207,7 +217,7 @@ def create_manifest(
     Returns:
         {
             "manifest_written": bool,
-            "manifest_path": str | None,  # relative to Jobs root, e.g. /TakeoffAssistFiles/dev/Bids/…/takeoffassist_manifest.json
+            "manifest_path": str | None,
         }
     """
     manifest_file = project_root / _MANIFEST_FILENAME
@@ -221,6 +231,7 @@ def create_manifest(
         logger.info("Manifest already exists — skipping write: %s", rel)
         return {"manifest_written": False, "manifest_path": rel}
 
+    now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest = {
         "schema_version": _MANIFEST_SCHEMA_VERSION,
         "workspace_type": "bid",
@@ -229,13 +240,16 @@ def create_manifest(
         "normalized_folder": normalized_name,
         "bid_id": bid_id,
         "created_by": "TakeoffAssist",
-        "created_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "created_at": now,
+        "last_updated": now,
         "status": "workspace_created",
+        "files": [],
+        "file_counts": {k: 0 for k in _ALL_SUBDIRS},
     }
 
     try:
         manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        logger.info("Manifest written: %s", rel)
+        logger.info("Manifest v2.0 written: %s", rel)
         return {"manifest_written": True, "manifest_path": rel}
     except Exception as exc:
         logger.error("Manifest write failed (folder creation unaffected): %s — %s", rel, exc)
@@ -249,15 +263,21 @@ def create_project_skeleton(
     bid_id: Optional[int] = None,
     project_name: Optional[str] = None,
 ) -> dict:
-    """Create the standard three-directory skeleton for a new project.
+    """Create the standard five-directory skeleton for a new project.
 
     Directories created (idempotent):
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/Plans/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/Specifications/
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/Bids/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/Attachments/
+        TakeoffAssistFiles/<zone>/Bids/<folder_name>/Generated/
 
     Also creates (idempotent, failure-safe):
         TakeoffAssistFiles/<zone>/Bids/<folder_name>/takeoffassist_manifest.json
+
+    The manifest is written as schema v2.0 with an empty files[] array and
+    zeroed file_counts for all five subdirectories.
 
     Args:
         folder_name:  Already-normalised folder name (no path separators).
@@ -287,9 +307,10 @@ def create_project_skeleton(
 
     normalized = normalize_folder_name(folder_name)
 
-    root_dir  = make_dir(f"{zone}/Bids/{normalized}")
-    plans_dir = make_dir(f"{zone}/Bids/{normalized}/Plans")
-    bids_dir  = make_dir(f"{zone}/Bids/{normalized}/Bids")
+    root_dir   = make_dir(f"{zone}/Bids/{normalized}")
+    dirs = [root_dir]
+    for subdir in _ALL_SUBDIRS:
+        dirs.append(make_dir(f"{zone}/Bids/{normalized}/{subdir}"))
 
     project_root = (WRITE_ZONE / zone / "Bids" / normalized).resolve()
     try:
@@ -307,7 +328,7 @@ def create_project_skeleton(
     return {
         "normalized_name": normalized,
         "zone": zone,
-        "dirs": [root_dir, plans_dir, bids_dir],
+        "dirs": dirs,
         "manifest_written": manifest_result["manifest_written"],
         "manifest_path": manifest_result["manifest_path"],
     }

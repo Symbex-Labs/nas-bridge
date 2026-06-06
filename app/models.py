@@ -122,3 +122,4 @@ class WriteFileResponse(BaseModel):
     size_bytes: int = Field(..., description="Size of the content in bytes")
     sha256: str = Field(..., description="Hex SHA-256 digest of the content written")
     already_existed: bool = Field(..., description="True when an identical file was already present — write was skipped")
+    manifest_updated: bool = Field(False, description="True when the workspace manifest was successfully updated with the new file entry")

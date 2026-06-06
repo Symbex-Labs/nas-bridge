@@ -442,7 +442,8 @@ def test_R_response_contains_no_credentials(write_env):
     if bridge_token:
         assert bridge_token not in response_str, "BRIDGE_TOKEN found in write_file response!"
 
-    assert set(result.keys()) == {"success", "path", "size_bytes", "sha256", "already_existed"}
+    # Phase 3 (NAS-W004): manifest_updated added to response
+    assert set(result.keys()) == {"success", "path", "size_bytes", "sha256", "already_existed", "manifest_updated"}
 
 
 # ---------------------------------------------------------------------------
