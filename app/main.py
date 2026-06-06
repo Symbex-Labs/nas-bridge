@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Annotated, Union
+from typing import Annotated, Optional, Union
 
 from fastapi import Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -45,6 +45,7 @@ from .models import (
 )
 from .write_test import write_and_verify
 from .mkdir import make_dir, create_project_skeleton
+from .write import write_file as _write_file
 
 logger = logging.getLogger(__name__)
 
@@ -329,9 +330,17 @@ async def write_file(
     workspace_path: Annotated[str, Form(description="Relative path within zone/Bids/, e.g. 'Project_Name/Plans'")],
     filename: Annotated[str, Form(description="Simple filename with allowed extension, e.g. 'plans.pdf'")],
     file: Annotated[UploadFile, File(description="Binary file content")],
+    source: Annotated[str, Form(description="Upload source label — MANUAL | EMAIL | PLANHUB | BUILDINGCONNECTED | PROCORE | GENERATED")] = "MANUAL",
+    uploaded_by: Annotated[str, Form(description="Audit identity string, e.g. 'user:alice' or 'system:acquisition'")] = "system",
+    object_storage_key: Annotated[Optional[str], Form(description="Object Storage key for the archived copy (optional)")] = None,
 ) -> WriteFileResponse:
     content = await file.read()
-    result = _write_file(zone, workspace_path, filename, content)
+    result = _write_file(
+        zone, workspace_path, filename, content,
+        source=source,
+        uploaded_by=uploaded_by,
+        object_storage_key=object_storage_key,
+    )
     return WriteFileResponse(**result)
 
 
