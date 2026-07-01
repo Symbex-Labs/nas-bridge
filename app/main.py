@@ -54,15 +54,19 @@ app = FastAPI(
     version=settings.version,
     summary="HTTP API for the Synology DS423+ Jobs share over Tailscale.",
     description=(
-        "Exposes the NAS Jobs folder as a lightweight HTTP API.  "
+        "Internal server-to-server bridge for the NAS Jobs share.  "
+        "**This service is not for direct client use.**  "
         "All `/api/v1/*` endpoints require `Authorization: Bearer <BRIDGE_TOKEN>`.  "
         "The `/health` endpoint is unauthenticated.  "
+        "Read endpoints (list, metadata, file) are filesystem-scoped to `/Jobs/`; "
+        "the calling API server (TakeoffAssist) enforces an additional application-level "
+        "restriction — only paths under `TakeoffAssistFiles/` may be proxied to end users.  "
         "Writes are permitted **only** within `/Jobs/TakeoffAssistFiles/`; "
-        "all other subtrees remain read-only."
+        "all other subtrees are rejected at the code level regardless of filesystem permissions."
     ),
     openapi_tags=[
         {"name": "health", "description": "Liveness and volume-mount check."},
-        {"name": "files", "description": "Browse and retrieve files from the Jobs share."},
+        {"name": "files", "description": "Read files and directories from the Jobs share. Access is scoped to TakeoffAssistFiles/ by the calling API server."},
         {"name": "write", "description": "Controlled write operations (TakeoffAssistFiles zone only). Includes file writes and directory creation."},
     ],
 )
@@ -123,6 +127,9 @@ def health() -> HealthResponse:
         root_readable=readable,
         version=settings.version,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        # PACKAGE-CURATION-006B — advertise the endpoints callers can rely on so
+        # the API/UI can detect a pre-mkdir-path bridge and prompt a redeploy.
+        capabilities={"mkdir_path": True},
     )
 
 
@@ -139,8 +146,10 @@ _BEARER_SECURITY = {"security": [{"BearerAuth": []}]}
     summary="List directory contents",
     description=(
         "Returns the immediate children of the directory at `path`.  "
-        "Pass an empty `path` or `/` to list the root Jobs folder.  "
-        "Entries are sorted: directories first, then files, both alphabetically."
+        "Entries are sorted: directories first, then files, both alphabetically.  "
+        "**Note:** This endpoint accepts any path under the `/Jobs` filesystem root, "
+        "but the calling API server restricts proxied access to `TakeoffAssistFiles/` only.  "
+        "Direct bridge callers are responsible for enforcing appropriate path scope."
     ),
     responses={
         200: {"description": "Directory listing", "model": ListResponse},
@@ -386,3 +395,42 @@ def mkdir_project(body: ProjectFolderRequest) -> ProjectFolderResponse:
         project_name=body.project_name,
     )
     return ProjectFolderResponse(**result)
+
+
+@app.post(
+    "/api/v1/mkdir-path",
+    response_model=MkdirResponse,
+    tags=["write"],
+    summary="Create an arbitrary nested directory inside TakeoffAssistFiles/",
+    description=(
+        "Creates a single nested directory (and any missing parents) at "
+        "`rel_path`, resolved relative to the `TakeoffAssistFiles/` write zone:\n\n"
+        "```\n"
+        "TakeoffAssistFiles/<rel_path>/\n"
+        "```\n\n"
+        "Unlike `POST /api/v1/mkdir` (which creates the fixed project skeleton), this "
+        "endpoint creates an operator-independent nested path such as "
+        "`<zone>/Bids/<Project>/Generated/TakeoffPackages`.  The calling API server is "
+        "responsible for composing a correct `rel_path` (it always prefixes the zone).\n\n"
+        "The call is **idempotent** — parents are created with `parents=True, exist_ok=True`, "
+        "so an existing directory is reported as `already_existed: true` and no error is raised.\n\n"
+        "Hard constraints (code-level, independent of filesystem permissions):\n"
+        "- Target must resolve within `TakeoffAssistFiles/`\n"
+        "- Path traversal (`../`) is rejected with HTTP 400\n"
+        "- Absolute paths and null bytes are rejected with HTTP 400\n"
+        "- A file (not directory) already at the target is rejected with HTTP 409\n"
+    ),
+    responses={
+        200: {"description": "Directory created or verified", "model": MkdirResponse},
+        400: {"description": "Invalid path, absolute path, or traversal attempt", "model": ErrorResponse},
+        401: {"description": "Missing or invalid Bearer token", "model": ErrorResponse},
+        403: {"description": "Resolved path escapes the write zone", "model": ErrorResponse},
+        409: {"description": "A file already exists at the target path", "model": ErrorResponse},
+        503: {"description": "Write zone not writable — check Docker mount", "model": ErrorResponse},
+    },
+    openapi_extra=_BEARER_SECURITY,
+    dependencies=[_AUTH],
+)
+def mkdir_path(body: MkdirRequest) -> MkdirResponse:
+    result = make_dir(body.rel_path)
+    return MkdirResponse(**result)

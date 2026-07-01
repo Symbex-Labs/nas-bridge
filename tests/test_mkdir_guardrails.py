@@ -239,6 +239,73 @@ def test_deep_nesting_contained(mkdir_env):
     assert (mkdir_env["write_zone"] / "dev" / "Bids" / "JobName" / "Plans").is_dir()
 
 
+# ── PACKAGE-CURATION-006A — POST /api/v1/mkdir-path endpoint ──────────────────
+
+def test_mkdir_path_endpoint_creates_nested_takeoffpackages(mkdir_env):
+    """The new endpoint creates the full nested Generated/TakeoffPackages chain."""
+    import app.main as main
+    from app.models import MkdirRequest
+
+    rel = "dev/Bids/MyProject/Generated/TakeoffPackages"
+    resp = main.mkdir_path(MkdirRequest(rel_path=rel))
+
+    assert resp.created is True
+    assert resp.already_existed is False
+    assert "TakeoffAssistFiles" in resp.path
+    target = (
+        mkdir_env["write_zone"] / "dev" / "Bids" / "MyProject"
+        / "Generated" / "TakeoffPackages"
+    )
+    assert target.is_dir()
+    # Parent (Generated/) was created too (parents=True).
+    assert target.parent.is_dir()
+
+
+def test_mkdir_path_endpoint_idempotent(mkdir_env):
+    """A second call to the endpoint reports already_existed=True (no error)."""
+    import app.main as main
+    from app.models import MkdirRequest
+
+    rel = "dev/Bids/Idem/Generated/TakeoffPackages"
+    main.mkdir_path(MkdirRequest(rel_path=rel))
+    resp2 = main.mkdir_path(MkdirRequest(rel_path=rel))
+
+    assert resp2.already_existed is True
+    assert resp2.created is False
+
+
+@pytest.mark.parametrize("bad_path", [
+    "../Bids/pwned",
+    "../../etc/passwd",
+    "dev/Bids/../../secret",
+    "/abs/path",
+])
+def test_mkdir_path_endpoint_rejects_traversal_and_absolute(bad_path, mkdir_env):
+    """Traversal / absolute paths are rejected by the endpoint (delegates to make_dir)."""
+    from fastapi import HTTPException
+    import app.main as main
+    from app.models import MkdirRequest
+
+    with pytest.raises(HTTPException) as exc_info:
+        main.mkdir_path(MkdirRequest(rel_path=bad_path))
+    assert exc_info.value.status_code in (400, 403)
+
+
+def test_mkdir_path_endpoint_rejects_file_at_target(mkdir_env):
+    """If a file already occupies the target path, the endpoint raises HTTP 409."""
+    from fastapi import HTTPException
+    import app.main as main
+    from app.models import MkdirRequest
+
+    parent = mkdir_env["write_zone"] / "dev" / "Bids" / "Clash" / "Generated"
+    parent.mkdir(parents=True)
+    (parent / "TakeoffPackages").write_text("i am a file, not a dir")
+
+    with pytest.raises(HTTPException) as exc_info:
+        main.mkdir_path(MkdirRequest(rel_path="dev/Bids/Clash/Generated/TakeoffPackages"))
+    assert exc_info.value.status_code == 409
+
+
 # ── Zone routing tests (v1.2.0) ───────────────────────────────────────────────
 
 def test_zone_dev_writes_to_dev_subfolder(mkdir_env):

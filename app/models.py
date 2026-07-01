@@ -10,6 +10,10 @@ class HealthResponse(BaseModel):
     root_readable: bool
     version: str
     timestamp: str
+    # PACKAGE-CURATION-006B — feature flags the API/UI read to detect whether the
+    # deployed bridge supports newer endpoints (e.g. mkdir-path).  An older
+    # deployed bridge omits this field entirely, which callers treat as "missing".
+    capabilities: dict[str, bool] = Field(default_factory=dict)
 
 
 class DirectoryEntry(BaseModel):
